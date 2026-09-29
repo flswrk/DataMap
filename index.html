@@ -2,25 +2,22 @@
 <html lang="en">
 <!--
   DataMap — single-file app. Host this one file anywhere over https (GitHub Pages works).
+  No login: anyone who opens the page can view and edit the data.
 
   SETUP
-  1. Firebase console: create a project, add a Web app, and paste its config into CONFIG below.
-  2. Authentication > Sign-in method: enable Email/Password. Users tab: add your login.
-  3. Firestore Database: create it (production mode). Rules tab: paste the rules below and Publish.
-     Replace you@example.com with your email (lowercase). Add more people inside the brackets.
+  1. Firebase console: create a project, add a Web app, and paste its config into the config block below.
+  2. Firestore Database: create it. Rules tab: paste the rules below and Publish.
+     (Use these exact rules — Firebase's "test mode" rules stop working after 30 days.)
 
   FIRESTORE RULES
   rules_version = '2';
   service cloud.firestore {
     match /databases/{database}/documents {
-      function allowed() {
-        return request.auth != null && request.auth.token.email in ['you@example.com'];
-      }
-      match /{document=**} { allow read, write: if allowed(); }
+      match /{document=**} { allow read, write: if true; }
     }
   }
 
-  With the CONFIG values left empty the app runs in local mode (data saved in this browser only).
+  With no Firebase config (apiKey / projectId empty) the app runs in local mode (data saved in this browser only).
 -->
 <head>
 <meta charset="utf-8">
@@ -200,12 +197,6 @@ main{flex:1;min-height:0;display:flex}
 .foot .spacer{flex:1}
 .hint{font-size:12px;color:var(--muted);margin:4px 0 0}
 
-#auth{position:fixed;inset:0;z-index:5000;background:var(--bg);display:grid;place-items:center;padding:20px}
-.auth-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:22px;width:min(380px,100%)}
-.auth-card h2{margin:0 0 4px;font-size:18px}
-.auth-card p{margin:0 0 14px;color:var(--muted)}
-.auth-card .f input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:16px}
-.auth-err{color:var(--danger);font-size:13px;min-height:18px;margin:2px 0 8px}
 #toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);
   padding:9px 14px;border-radius:10px;z-index:4000;display:flex;gap:12px;align-items:center;max-width:calc(100vw - 24px);box-shadow:var(--shadow)}
 #toast button{background:none;border:0;color:inherit;font-weight:700;text-decoration:underline;cursor:pointer;padding:0}
@@ -229,7 +220,6 @@ main{flex:1;min-height:0;display:flex}
 <div id="toast" hidden></div>
 
 <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore-compat.js"></script>
 <script>
 /* =====================================================================
@@ -354,7 +344,7 @@ async function run(promise){
     const code = e && e.code;
     if(code==='quota_exceeded') toast('Storage limit reached — delete some items first.');
     else if(code==='invalid_argument' || code==='not-found') toast('Couldn’t save — that item no longer exists.');
-    else if(code==='permission-denied' || code==='unauthenticated') toast('Not allowed — sign in again, or check the allowed emails in firestore.rules.');
+    else if(code==='permission-denied' || code==='unauthenticated') toast('Not allowed — check your Firestore rules (see the top of this file).');
     else if(code==='resource-exhausted') toast('Firebase quota reached for today. Try again later.');
     else if(code==='unavailable') toast('You appear to be offline — changes will sync when you reconnect.');
     else toast('Couldn’t save ('+(code||'error')+'). Try again.');
@@ -1287,8 +1277,7 @@ async function onSecUp(){
     h('button',{class:'btn primary',id:'btnSection',hidden:true,onclick:guard(()=>openSectionEditor({}))}, ic('plus',14),'Section'),
     h('button',{class:'btn',id:'btnCard',hidden:true,onclick:guard(()=>openCardEditor({}))}, ic('plus',14),'Card'),
     h('button',{class:'btn',id:'btnArrange',hidden:true,title:'Line sections up alphabetically',onclick:arrange}, ic('arrange',14),'Arrange A–Z'),
-    h('button',{class:'btn primary',id:'btnFolder',hidden:true,onclick:guard(()=>openFolderSheet({}))}, ic('plus',14),'Folder'),
-    h('button',{class:'btn',id:'btnSignOut',hidden:true,onclick:()=>signOut()},'Sign out')
+    h('button',{class:'btn primary',id:'btnFolder',hidden:true,onclick:guard(()=>openFolderSheet({}))}, ic('plus',14),'Folder')
   );
 })();
 
@@ -1296,49 +1285,9 @@ async function onSecUp(){
    Init
    ===================================================================== */
 /* =====================================================================
-   Init  (auth + storage)
+   Init  (storage)
    ===================================================================== */
-let authRef = null;
 function showBanner(msg){ const b=$('#banner'); b.textContent=msg; b.hidden=false; }
-
-async function signOut(){
-  try{ if(authRef) await authRef.signOut(); }catch(e){}
-  location.reload();
-}
-
-function friendlyAuthError(e){
-  const c = (e && e.code) || '';
-  if(/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)) return 'Wrong email or password.';
-  if(/too-many-requests/.test(c)) return 'Too many attempts. Wait a few minutes and try again.';
-  if(/network-request-failed/.test(c)) return 'Network error. Check your connection.';
-  if(/operation-not-allowed/.test(c)) return 'Email/password sign-in is not enabled in Firebase yet.';
-  return (e && e.message) || 'Sign-in failed.';
-}
-
-function showLogin(auth){
-  return new Promise(resolve=>{
-    const email = h('input',{type:'email',autocomplete:'username',inputmode:'email',autocapitalize:'off',placeholder:'you@example.com'});
-    const pass = h('input',{type:'password',autocomplete:'current-password',placeholder:'Password'});
-    const err = h('div',{class:'auth-err',text:''});
-    const btn = h('button',{class:'btn primary',type:'button',style:'width:100%;justify-content:center',text:'Sign in'});
-    const go = async()=>{
-      if(!email.value.trim()||!pass.value){ err.textContent='Enter your email and password.'; return; }
-      btn.disabled=true; btn.textContent='Signing in…'; err.textContent='';
-      try{ await auth.signInWithEmailAndPassword(email.value.trim(), pass.value); }
-      catch(e){ err.textContent = friendlyAuthError(e); btn.disabled=false; btn.textContent='Sign in'; return; }
-      ov.remove(); resolve();
-    };
-    btn.addEventListener('click',go);
-    [email,pass].forEach(i=>i.addEventListener('keydown',e=>{ if(e.key==='Enter') go(); }));
-    const ov = h('div',{id:'auth'}, h('div',{class:'auth-card'},
-      h('h2',{text:'DataMap'}), h('p',{text:'Sign in to continue.'}),
-      h('div',{class:'f'}, h('label',{text:'Email'}), email),
-      h('div',{class:'f'}, h('label',{text:'Password'}), pass),
-      err, btn));
-    document.body.append(ov);
-    setTimeout(()=>email.focus(),30);
-  });
-}
 
 /* =====================================================================
    PWA (single file): the icons are embedded below as PNG data — nothing is
@@ -1377,19 +1326,14 @@ function setupPWA(){
     showBanner('Local mode — data is saved only in this browser. Add your Firebase config at the top of this file to sync online.');
     S.store = localStore();
   } else {
-    if(typeof firebase==='undefined' || !firebase.firestore || !firebase.auth){ showBanner('Could not load Firebase. Check your internet connection and reload.'); return; }
+    if(typeof firebase==='undefined' || !firebase.firestore){ showBanner('Could not load Firebase. Check your internet connection and reload.'); return; }
     try{ if(!firebase.apps.length) firebase.initializeApp(fc); }
     catch(e){ showBanner('Firebase config problem: '+((e&&e.message)||e)); return; }
-    authRef = firebase.auth();
-    const user = await new Promise(res=>{ const un = authRef.onAuthStateChanged(u=>{ un(); res(u); }); });
-    if(!user) await showLogin(authRef);
-    authRef.onAuthStateChanged(u=>{ if(!u) location.reload(); });
-    $('#btnSignOut').hidden = false;
     S.store = firebaseStore(firebase.firestore());
   }
   const onErr = e=>{
     const c = e && e.code;
-    if(c==='permission-denied') showBanner('Access denied. Publish firestore.rules and make sure your email is in its allowed list.');
+    if(c==='permission-denied') showBanner('Access denied by Firestore. In Firebase → Firestore → Rules, publish the open rules shown at the top of this file.');
     else showBanner('Sync problem ('+((e&&(c||e.message))||'error')+'). Reload the page.');
   };
   COLLS.forEach(c=>{
