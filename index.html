@@ -1371,7 +1371,8 @@ function setupPWA(){
 (async function init(){
   try{ setupPWA(); }catch(e){}
   render();
-  const fc = CONFIG.FIREBASE || {};
+  // Accepts either shape: my CONFIG = { FIREBASE:{…} } block, or Firebase's own `const firebaseConfig = {…}` snippet pasted as-is.
+  const fc = (typeof CONFIG!=='undefined' && CONFIG.FIREBASE) || (typeof firebaseConfig!=='undefined' ? firebaseConfig : {});
   if(!fc.apiKey || !fc.projectId){
     showBanner('Local mode — data is saved only in this browser. Add your Firebase config at the top of this file to sync online.');
     S.store = localStore();
